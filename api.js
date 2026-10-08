@@ -33,7 +33,8 @@ async function request(url, options = {}) {
 }
 
 // ---------- 3. Drawing ----------
-function createNoteItem(note) {
+// isLocal is true for notes we created in this page session
+function createNoteItem(note, isLocal = false) {
   const li = document.createElement("li");
   li.classList.add("note");
 
@@ -43,7 +44,13 @@ function createNoteItem(note) {
   const body = document.createElement("p");
   body.textContent = note.body || "";
 
-  li.append(title, body);
+  const del = document.createElement("button");
+  del.type = "button";
+  del.classList.add("delete-btn");
+  del.textContent = "Delete";
+  del.addEventListener("click", () => handleDelete(note, li, del, isLocal));
+
+  li.append(title, body, del);
   return li;
 }
 
@@ -88,10 +95,6 @@ async function loadNotes() {
   }
 }
 
-loadBtn.addEventListener("click", loadNotes);
-
-setStatus('Click "Load notes" to get started.');
-
 // ---------- 5. Create a note (POST) ----------
 async function createNote(title, body) {
   const { data, status } = await request(API_URL, {
@@ -102,7 +105,7 @@ async function createNote(title, body) {
   return { note: data, status };
 }
 
-form.addEventListener("submit", async (event) => {
+async function handleSubmit(event) {
   event.preventDefault();
 
   const title = titleInput.value.trim();
@@ -124,7 +127,7 @@ form.addEventListener("submit", async (event) => {
   try {
     const { note, status } = await createNote(title, body);
     clearEmptyMessage();
-    list.prepend(createNoteItem(note));
+    list.prepend(createNoteItem(note, true));
     setStatus(`Note created (status ${status}, id ${note.id}).`, "success");
     form.reset();
   } catch (error) {
@@ -133,4 +136,44 @@ form.addEventListener("submit", async (event) => {
   } finally {
     submitBtn.disabled = false;
   }
-});
+}
+
+// ---------- 6. Delete a note (DELETE) ----------
+// NOTE ABOUT JSONPLACEHOLDER: it is a fake API. It answers DELETE with
+// success but never really removes anything, so a refresh brings the
+// notes back. Also, notes we CREATE are never really stored (every new
+// note gets the same id, 101), so there is nothing on the server to
+// delete. My approach:
+//   - notes loaded from the server: send DELETE /posts/{id} and remove the
+//     note from the list when the server says OK;
+//   - notes created in this page (isLocal): they only exist in the page,
+//     so I remove them from the list without calling the server.
+// A real API would store and delete both kinds for real.
+async function handleDelete(note, li, button, isLocal) {
+  button.disabled = true;
+  setStatus("Deleting note...");
+
+  try {
+    if (isLocal) {
+      setStatus("Note removed (it only existed in this page).", "success");
+    } else {
+      const { status } = await request(`${API_URL}/${note.id}`, {
+        method: "DELETE",
+      });
+      setStatus(`Note deleted (status ${status}).`, "success");
+    }
+    li.remove();
+    showEmptyIfNeeded();
+  } catch (error) {
+    console.error(error);
+    setStatus("Could not delete the note. Please try again.", "error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
+// ---------- 7. Listeners ----------
+loadBtn.addEventListener("click", loadNotes);
+form.addEventListener("submit", handleSubmit);
+
+setStatus('Click "Load notes" to get started.');
